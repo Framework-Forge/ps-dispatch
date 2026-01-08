@@ -413,6 +413,7 @@ end
 exports('CarJacking', CarJacking)
 
 local function InjuriedPerson()
+    if InMinigame("pug-paintball", "IsInPaintball") or InMinigame("pug-battleroyale", "IsInBattleRoyale") then return end
     local coords = GetEntityCoords(cache.ped)
 
     local dispatchData = {
