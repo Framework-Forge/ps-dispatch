@@ -4,7 +4,7 @@ local timer = {}
 ---@param res string Resource name
 ---@param exp string Export function name
 ---@return boolean
-local function InMinigame(res, exp)
+function InMinigame(res, exp)
     if GetResourceState(res) ~= "started" then return false end
 
     local ok, result = pcall(function()
