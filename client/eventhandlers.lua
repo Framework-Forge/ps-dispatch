@@ -1,5 +1,19 @@
 local timer = {}
 
+--- Safely checks a boolean export on a started resource.
+---@param res string Resource name
+---@param exp string Export function name
+---@return boolean
+function InMinigame(res, exp)
+    if GetResourceState(res) ~= "started" then return false end
+
+    local ok, result = pcall(function()
+        return exports[res] and exports[res][exp] and exports[res][exp]()
+    end)
+
+    return ok and result == true
+end
+
 ---@param name string -- The name of the timer
 ---@param action function -- The function to execute when the timer is up
 ---@vararg any -- Arguments to pass to the action function
@@ -39,10 +53,11 @@ local function BlacklistedWeapon(ped)
 end
 
 AddEventHandler('CEventGunShot', function(witnesses, ped)
+    if InMinigame("pug-paintball", "IsInPaintball") or InMinigame("pug-battleroyale", "IsInBattleRoyale") then return end
     if IsPedCurrentWeaponSilenced(cache.ped) then return end
     if inNoDispatchZone then return end
     if BlacklistedWeapon(cache.ped) then return end
-
+        
     WaitTimer('Shooting', function()
         if cache.ped ~= ped then return end
 
@@ -128,11 +143,6 @@ local SpeedingEvents = {
     'CEventShockingInDangerousVehicle'
 }
 
-local exemptVehicleClass = {
-    [15] = true, -- Helicopters
-    [16] = true, -- Planes
-}
-
 local SpeedTrigger = 0
 for i = 1, #SpeedingEvents do
     local event = SpeedingEvents[i]
@@ -149,10 +159,7 @@ for i = 1, #SpeedingEvents do
                     return
                 end
             end
-
-            local vehicleClass = GetVehicleClass(cache.vehicle)
-            if exemptVehicleClass[vehicleClass] then return end
-
+            
             if GetEntitySpeed(cache.vehicle) * 3.6 < (80 + math.random(0, 20)) then return end
 
             if cache.ped ~= GetPedInVehicleSeat(cache.vehicle, -1) then return end
