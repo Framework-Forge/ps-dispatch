@@ -1,5 +1,19 @@
 local timer = {}
 
+--- Safely checks a boolean export on a started resource.
+---@param res string Resource name
+---@param exp string Export function name
+---@return boolean
+function InMinigame(res, exp)
+    if GetResourceState(res) ~= "started" then return false end
+
+    local ok, result = pcall(function()
+        return exports[res] and exports[res][exp] and exports[res][exp]()
+    end)
+
+    return ok and result == true
+end
+
 ---@param name string -- The name of the timer
 ---@param action function -- The function to execute when the timer is up
 ---@vararg any -- Arguments to pass to the action function
@@ -42,6 +56,7 @@ local function BlacklistedWeapon(ped)
 end
 
 AddEventHandler('CEventGunShot', function(witnesses, ped)
+	if InMinigame("pug-paintball", "IsInPaintball") or InMinigame("pug-battleroyale", "IsInBattleRoyale") then return end
     if IsPedCurrentWeaponSilenced(cache.ped) then return end
     if inNoDispatchZone then return end
     if BlacklistedWeapon(cache.ped) then return end
