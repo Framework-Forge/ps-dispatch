@@ -5,6 +5,7 @@
 	import AlwaysListener from '@providers/AlwaysListener.svelte'
 	import Menu from '@components/Menu.svelte'
 	import Main from '@components/Main.svelte'
+	import AdminSettings from '@components/AdminSettings.svelte'
 
 	$RESOURCE_NAME  = 'ps-dispatch'
 </script>
@@ -16,6 +17,7 @@
 	</VisibilityProvider>
 
 	<Main />
+	<AdminSettings />
 {/if}
 
 <AlwaysListener />

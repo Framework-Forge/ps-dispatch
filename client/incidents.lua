@@ -124,7 +124,7 @@ end)
 --- server-side.
 local function refreshMayDeclare()
     if cfg().Enabled == false then return end
-    local may = lib.callback.await('ps-dispatch:callback:mayDeclareIncident', false)
+    local may = pr_lib.callback.await('ps-dispatch:callback:mayDeclareIncident', false)
     SendNUIMessage({ action = 'mayDeclareIncident', data = may == true })
 end
 
@@ -145,7 +145,7 @@ CreateThread(function()
     end
     Wait(1000)
 
-    local list = lib.callback.await('ps-dispatch:callback:getIncidents', false)
+    local list = pr_lib.callback.await('ps-dispatch:callback:getIncidents', false)
     if type(list) == 'table' then
         activeIncidents = list
         pushIncidentsToNui()
@@ -154,21 +154,8 @@ CreateThread(function()
     refreshMayDeclare()
 end)
 
--- Joining, switching character or reloading the resource all land here.
-RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
-    CreateThread(function() Wait(1500) refreshMayDeclare() end)
-end)
-
-RegisterNetEvent('qbx_core:client:playerLoaded', function()
-    CreateThread(function() Wait(1500) refreshMayDeclare() end)
-end)
-
--- Job changes mid-session (promotion, going off duty) change the answer.
--- A promotion changes the answer.
-RegisterNetEvent('QBCore:Client:OnJobUpdate', function()
-    CreateThread(function() Wait(500) refreshMayDeclare() end)
-end)
-
-RegisterNetEvent('qbx_core:client:onJobUpdate', function()
+-- Emitted by main.lua whenever pr_bridge reports a character, job, grade or
+-- duty change.
+AddEventHandler('ps-dispatch:client:bridgePlayerDataChanged', function()
     CreateThread(function() Wait(500) refreshMayDeclare() end)
 end)

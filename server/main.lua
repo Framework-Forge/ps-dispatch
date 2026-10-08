@@ -1,10 +1,22 @@
 local calls = {}
 local callCount = 0
+local Framework = PSDispatch.framework
 
--- QBCore is only needed for the job-filtered broadcast; keep the resource
--- functional without it (falls back to the old broadcast-to-everyone).
-local QBCore = nil
-pcall(function() QBCore = exports['qb-core']:GetCoreObject() end)
+local function getPlayerJob(src)
+    return Framework.GetPlayerJob(tonumber(src))
+end
+
+local function jobMatches(jobs, job)
+    return type(jobs) == 'table' and type(job) == 'table'
+        and (pr_lib.table.contains(jobs, job.type) or pr_lib.table.contains(jobs, job.name))
+end
+
+local function eachPlayer(callback)
+    for _, playerId in ipairs(GetPlayers()) do
+        local src = tonumber(playerId)
+        if src then callback(src, getPlayerJob(src)) end
+    end
+end
 
 ---@param data table
 -- Resolve blip metadata ONCE server-side from the shared config: the display
@@ -152,20 +164,18 @@ local function broadcastCall(data)
     -- not carry its true coords, no matter which branch sends it.
     local payload = publicCall(data)
 
-    if Config.FilteredBroadcast == false or not QBCore then
+    if Config.FilteredBroadcast == false then
         TriggerClientEvent('ps-dispatch:client:notify', -1, payload)
         return
     end
 
-    local players = QBCore.Functions.GetQBPlayers()
-    for src, player in pairs(players) do
-        local job = player.PlayerData and player.PlayerData.job
-        if job and (lib.table.contains(data.jobs, job.type) or lib.table.contains(data.jobs, job.name)) then
+    eachPlayer(function(src, job)
+        if jobMatches(data.jobs, job) then
             if Config.FilterOnDuty == false or job.onduty then
                 TriggerClientEvent('ps-dispatch:client:notify', src, payload)
             end
         end
-    end
+    end)
 end
 
 -- src -> citizenid of the last attach, so a disconnect can clean the unit
@@ -209,19 +219,17 @@ end
 -- show "N responding" in real time. Same job/duty filter as full alerts.
 local function broadcastUnitCount(call)
     local payload = { id = call.id, count = #(call.units or {}) }
-    if Config.FilteredBroadcast == false or not QBCore then
+    if Config.FilteredBroadcast == false then
         TriggerClientEvent('ps-dispatch:client:unitCount', -1, payload)
         return
     end
-    for src, player in pairs(QBCore.Functions.GetQBPlayers()) do
-        local job = player.PlayerData and player.PlayerData.job
-        if job and type(call.jobs) == 'table'
-            and (lib.table.contains(call.jobs, job.type) or lib.table.contains(call.jobs, job.name)) then
+    eachPlayer(function(src, job)
+        if jobMatches(call.jobs, job) then
             if Config.FilterOnDuty == false or job.onduty then
                 TriggerClientEvent('ps-dispatch:client:unitCount', src, payload)
             end
         end
-    end
+    end)
 end
 
 -- ── Hotspot tracking ─────────────────────────────────────────────────────────
@@ -258,7 +266,7 @@ local stats = {
     byCode = {},        -- codeName -> count
 }
 
-lib.callback.register('ps-dispatch:callback:getStats', function()
+pr_lib.callback.register('ps-dispatch:callback:getStats', function()
     local topCode, topCount = nil, 0
     for code, n in pairs(stats.byCode) do
         if n > topCount then topCode, topCount = code, n end
@@ -396,7 +404,7 @@ RegisterServerEvent('ps-dispatch:server:detach', function(id, player)
 end)
 
 -- Callbacks
-lib.callback.register('ps-dispatch:callback:getLatestDispatch', function(source)
+pr_lib.callback.register('ps-dispatch:callback:getLatestDispatch', function(source)
     return calls[#calls]
 end)
 
@@ -408,25 +416,25 @@ local function publicCalls()
     return out
 end
 
-lib.callback.register('ps-dispatch:callback:getCalls', function(source)
+pr_lib.callback.register('ps-dispatch:callback:getCalls', function(source)
     return publicCalls()
 end)
 
 -- Commands
-lib.addCommand('dispatch', {
+pr_lib.addCommand('dispatch', {
     help = locale('open_dispatch')
 }, function(source, raw)
     TriggerClientEvent("ps-dispatch:client:openMenu", source, publicCalls())
 end)
 
-lib.addCommand('911', {
+pr_lib.addCommand('911', {
     help = 'Send a message to 911',
     params = { { name = 'message', type = 'string', help = '911 Message' }},
 }, function(source, args, raw)
     local fullMessage = raw:sub(5)
     TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "911", false)
 end)
-lib.addCommand('911a', {
+pr_lib.addCommand('911a', {
     help = 'Send an anonymous message to 911',
     params = { { name = 'message', type = 'string', help = '911 Message' }},
 }, function(source, args, raw)
@@ -434,7 +442,7 @@ lib.addCommand('911a', {
     TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "911", true)
 end)
 
-lib.addCommand('311', {
+pr_lib.addCommand('311', {
     help = 'Send a message to 311',
     params = { { name = 'message', type = 'string', help = '311 Message' }},
 }, function(source, args, raw)
@@ -442,7 +450,7 @@ lib.addCommand('311', {
     TriggerClientEvent('ps-dispatch:client:sendEmergencyMsg', source, fullMessage, "311", false)
 end)
 
-lib.addCommand('311a', {
+pr_lib.addCommand('311a', {
     help = 'Send an anonymous message to 311',
     params = { { name = 'message', type = 'string', help = '311 Message' }},
 }, function(source, args, raw)
@@ -569,14 +577,9 @@ end)
 ---@param call table
 ---@return boolean # true when this player's job is targeted by the call
 -- Both actions below mutate a call everyone can see, so they are limited to
--- players the call was actually broadcast to. Without QBCore we cannot tell
--- jobs apart and fall back to allowing it, matching FilteredBroadcast.
+-- players the call was actually broadcast to.
 local function mayModifyCall(src, call)
-    if not QBCore then return true end
-    local player = QBCore.Functions.GetPlayer(src)
-    local job = player and player.PlayerData and player.PlayerData.job
-    if not job or type(call.jobs) ~= 'table' then return false end
-    return lib.table.contains(call.jobs, job.type) or lib.table.contains(call.jobs, job.name)
+    return jobMatches(call.jobs, getPlayerJob(src))
 end
 
 ---@param id number
@@ -610,15 +613,14 @@ RegisterServerEvent('ps-dispatch:server:clearCall', function(id)
     -- Announce to the call's audience so every open menu drops it, then to
     -- the clearing player specifically: they may have already moved out of
     -- the job filter's reach (off duty) but still deserve the confirmation.
-    if Config.FilteredBroadcast == false or not QBCore then
+    if Config.FilteredBroadcast == false then
         TriggerClientEvent('ps-dispatch:client:callCleared', -1, call.id)
     else
-        for target, player in pairs(QBCore.Functions.GetQBPlayers()) do
-            local job = player.PlayerData and player.PlayerData.job
-            if job and (lib.table.contains(call.jobs, job.type) or lib.table.contains(call.jobs, job.name)) then
+        eachPlayer(function(target, job)
+            if jobMatches(call.jobs, job) then
                 TriggerClientEvent('ps-dispatch:client:callCleared', target, call.id)
             end
-        end
+        end)
         TriggerClientEvent('ps-dispatch:client:callCleared', src, call.id)
     end
 end)
@@ -636,14 +638,13 @@ RegisterServerEvent('ps-dispatch:server:setCallNote', function(id, note)
     call.dispatchNote = note ~= '' and note or nil
 
     local payload = { id = call.id, note = call.dispatchNote }
-    if Config.FilteredBroadcast == false or not QBCore then
+    if Config.FilteredBroadcast == false then
         TriggerClientEvent('ps-dispatch:client:callNote', -1, payload)
     else
-        for target, player in pairs(QBCore.Functions.GetQBPlayers()) do
-            local job = player.PlayerData and player.PlayerData.job
-            if job and (lib.table.contains(call.jobs, job.type) or lib.table.contains(call.jobs, job.name)) then
+        eachPlayer(function(target, job)
+            if jobMatches(call.jobs, job) then
                 TriggerClientEvent('ps-dispatch:client:callNote', target, payload)
             end
-        end
+        end)
     end
 end)

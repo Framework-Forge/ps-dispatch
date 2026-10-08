@@ -1,5 +1,4 @@
-QBCore = exports['qb-core']:GetCoreObject()
-PlayerData = {}
+local Framework = PSDispatch.framework
 
 -- Settings are persisted with SetResourceKvp rather than the NUI's own
 -- localStorage. Both survive a relog, but a CEF cache clear wipes localStorage
@@ -12,6 +11,7 @@ PlayerData = {}
 local KVP_KEY = 'psd_settings'
 inHuntingZone, inNoDispatchZone = false, false
 local huntingZones, nodispatchZones, huntingBlips = {} , {}, {}
+local activeHuntingZones, activeNoDispatchZones = {}, {}
 
 local blips = {}
 local radius2 = {}
@@ -64,14 +64,68 @@ local function removeZones()
     end
     -- Reset the stored values too
     huntingZones, nodispatchZones, huntingBlips = {} , {}, {}
+    activeHuntingZones, activeNoDispatchZones = {}, {}
+    inHuntingZone, inNoDispatchZone = false, false
+end
+
+local function zoneVector(coords)
+    if type(coords) ~= 'table' and type(coords) ~= 'vector3' then return nil end
+    local x, y, z = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z)
+    if not x or not y or not z then return nil end
+    return vec3(x, y, z)
+end
+
+local function updateZoneFlag(collection, key, entered, kind)
+    collection[key] = entered and true or nil
+    if kind == 'hunting' then inHuntingZone = next(collection) ~= nil
+    else inNoDispatchZone = next(collection) ~= nil end
+end
+
+local function registerZone(zone, kind, key)
+    if type(zone) ~= 'table' or zone.active == false then return end
+    local collection = kind == 'hunting' and activeHuntingZones or activeNoDispatchZones
+    local options = {
+        debug = Config.Debug == true,
+        onEnter = function() updateZoneFlag(collection, key, true, kind) end,
+        onExit = function() updateZoneFlag(collection, key, false, kind) end,
+    }
+    local runtime
+    if zone.shape == 'poly' and type(zone.points) == 'table' and #zone.points >= 3 then
+        options.points = {}
+        for i = 1, #zone.points do
+            local point = zoneVector(zone.points[i])
+            if point then options.points[#options.points + 1] = point end
+        end
+        if #options.points >= 3 then
+            options.thickness = tonumber(zone.thickness) or 4.0
+            runtime = pr_lib.zones.poly(options)
+        end
+    elseif zone.shape == 'sphere' or zone.radius then
+        options.coords = zoneVector(zone.coords)
+        options.radius = tonumber(zone.radius) or 10.0
+        if options.coords then runtime = pr_lib.zones.sphere(options) end
+    else
+        options.coords = zoneVector(zone.coords)
+        options.size = vec3(tonumber(zone.length) or 10.0, tonumber(zone.width) or 10.0,
+            tonumber(zone.height) or math.max(0.5, (tonumber(zone.maxZ) or 2.0) - (tonumber(zone.minZ) or -2.0)))
+        options.rotation = tonumber(zone.heading or zone.rotation) or 0.0
+        if options.coords then runtime = pr_lib.zones.box(options) end
+    end
+    if runtime then
+        local target = kind == 'hunting' and huntingZones or nodispatchZones
+        target[#target + 1] = runtime
+    end
 end
 
 local function createZones()
+    removeZones()
+
     -- Hunting Zone --
-    if Config.Locations['HuntingZones'][1] then
-    	for _, hunting in pairs(Config.Locations["HuntingZones"]) do
+    local locations = Config.Locations or {}
+    for index, hunting in ipairs(locations.HuntingZones or {}) do
+        if hunting.active ~= false then
             -- Creates the Blips
-            if Config.EnableHuntingBlip then
+            if Config.EnableHuntingBlip and hunting.coords then
                 local blip = AddBlipForCoord(hunting.coords.x, hunting.coords.y, hunting.coords.z)
                 local huntingradius = AddBlipForRadius(hunting.coords.x, hunting.coords.y, hunting.coords.z, hunting.radius)
                 SetBlipSprite(blip, 442)
@@ -86,57 +140,55 @@ local function createZones()
                 huntingBlips[#huntingBlips+1] = blip
                 huntingBlips[#huntingBlips+1] = huntingradius
             end
-            -- Creates the Sphere --
-            local huntingZone = lib.zones.sphere({
-                coords = hunting.coords,
-                radius = hunting.radius,
-                debug = Config.Debug,
-                onEnter = function()
-                    inHuntingZone = true
-                end,
-                onExit = function()
-                    inHuntingZone = false
-                end
-            })
-            huntingZones[#huntingZones+1] = huntingZone
-    	end
+            registerZone(hunting, 'hunting', hunting.id or ('hunting:%s'):format(index))
+        end
     end
-    -- No Dispatch Zone --
-    if Config.Locations['NoDispatchZones'][1] then
-    	for _, nodispatch in pairs(Config.Locations["NoDispatchZones"]) do
-            local nodispatchZone = lib.zones.box({
-                coords = nodispatch.coords,
-                size = vec3(nodispatch.length, nodispatch.width, nodispatch.maxZ - nodispatch.minZ),
-                rotation = nodispatch.heading,
-                debug = Config.Debug,
-                onEnter = function()
-                    inNoDispatchZone = true
-                end,
-                onExit = function()
-                    inNoDispatchZone = false
-                end
-            })
-            nodispatchZones[#nodispatchZones+1] = nodispatchZone
-    	end
+
+    for index, nodispatch in ipairs(locations.NoDispatchZones or {}) do
+        registerZone(nodispatch, 'no_dispatch', nodispatch.id or ('no-dispatch:%s'):format(index))
+    end
+    for index, safezone in ipairs(PSDispatchExternalZones or {}) do
+        registerZone(safezone, 'no_dispatch', safezone.id or ('safezone:%s'):format(index))
     end
 end
 
+RegisterNetEvent('ps-dispatch:client:rebuildZones', function()
+    local data = Framework.GetPlayerData() or {}
+    if data.citizenid then createZones() end
+end)
+
+RegisterNetEvent('ps-dispatch:client:showAdminPanel', function()
+    toggleUI(true)
+    SendNUIMessage({ action = 'openAdminConfig', data = PSDispatchAdminPayload or {} })
+end)
+
 local function setupDispatch()
-    local playerInfo = QBCore.Functions.GetPlayerData()
-    local locales = lib.getLocales()
+    local playerInfo = Framework.GetPlayerData() or {}
+    if not playerInfo.citizenid then
+        PlayerData = { charinfo = {}, metadata = {}, job = {} }
+        return
+    end
+
+    local charinfo = playerInfo.charinfo or {}
+    local metadata = playerInfo.metadata or {}
+    local job = playerInfo.job or {}
+    local locales = pr_lib.getLocales()
     PlayerData = {
         charinfo = {
-            firstname = playerInfo.charinfo.firstname,
-            lastname = playerInfo.charinfo.lastname
+            firstname = charinfo.firstname or '',
+            lastname = charinfo.lastname or '',
+            phone = charinfo.phone
         },
         metadata = {
-            callsign = playerInfo.metadata.callsign
+            callsign = metadata.callsign
         },
         citizenid = playerInfo.citizenid,
         job = {
-            type = playerInfo.job.type,
-            name = playerInfo.job.name,
-            label = playerInfo.job.label
+            type = job.type,
+            name = job.name,
+            label = job.label,
+            onduty = job.onduty,
+            grade = job.grade
         },
     }
 
@@ -193,9 +245,9 @@ local function isJobValid(data)
     local jobName = PlayerData.job.name
 
     if type(data) == "string" then
-        return lib.table.contains(Config.Jobs, data) or lib.table.contains(Config.Jobs, jobName)
+        return pr_lib.table.contains(Config.Jobs, data) or pr_lib.table.contains(Config.Jobs, jobName)
     elseif type(data) == "table" then
-        return lib.table.contains(data, jobType) or lib.table.contains(data, jobName)
+        return pr_lib.table.contains(data, jobType) or pr_lib.table.contains(data, jobName)
     end
 
     return false
@@ -217,14 +269,14 @@ end
 local function openMenu()
     if not isJobValid(PlayerData.job.type) then return end
 
-    local calls = lib.callback.await('ps-dispatch:callback:getCalls', false)
+    local calls = pr_lib.callback.await('ps-dispatch:callback:getCalls', false)
     -- The menu now holds the plate log too, so "no calls" is no longer the same
     -- as "nothing to show" — an officer with checks logged and a quiet board
     -- still needs to get in.
     local plateCount = GetPlateHitCount and GetPlateHitCount() or 0
 
     if #calls == 0 and plateCount == 0 then
-        lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
+        pr_lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
         return
     end
 
@@ -250,7 +302,7 @@ local function setWaypoint()
     if not isJobValid(PlayerData.job.type) then return end
     if not IsOnDuty() then return end
 
-    local data = lib.callback.await('ps-dispatch:callback:getLatestDispatch', false)
+    local data = pr_lib.callback.await('ps-dispatch:callback:getLatestDispatch', false)
 
     if not data then return end
 
@@ -267,7 +319,7 @@ local function setWaypoint()
     local at = alertPosition(data)
     if not at then return end -- an alert without a position cannot be routed to
 
-    if not waypointCooldown and lib.table.contains(data.jobs, PlayerData.job.type) then
+    if not waypointCooldown and pr_lib.table.contains(data.jobs, PlayerData.job.type) then
         SetNewWaypoint(at.x, at.y)
         TriggerServerEvent('ps-dispatch:server:attach', data.id, PlayerData)
         -- Local bridge event so companion resources (e.g. ps-mdt's automatic
@@ -276,7 +328,7 @@ local function setWaypoint()
         TriggerEvent('ps-dispatch:client:selfAttach', data.id)
         -- Flip the popup's respond button into its "Responding" state.
         SendNUIMessage({ action = 'callResponded', data = data.id })
-        lib.notify({ description = locale('waypoint_set'), position = 'top', type = 'success' })
+        pr_lib.notify({ description = locale('waypoint_set'), position = 'top', type = 'success' })
         waypointCooldown = true
         SetTimeout(timer, function()
             waypointCooldown = false
@@ -411,14 +463,14 @@ local function addBlip(data, blipData)
 end
 
 -- Keybind
-local RespondToDispatch = lib.addKeybind({
+local RespondToDispatch = pr_lib.addKeybind({
     name = 'RespondToDispatch',
     description = 'Set waypoint to last call location',
     defaultKey = Config.RespondKeybind,
     onPressed = setWaypoint,
 })
 
-local OpenDispatchMenu = lib.addKeybind({
+local OpenDispatchMenu = pr_lib.addKeybind({
     name = 'OpenDispatchMenu',
     description = 'Open Dispatch Menu',
     defaultKey = Config.OpenDispatchMenu,
@@ -443,7 +495,7 @@ end)
 RegisterCommand('dispatchreset', function()
     DeleteResourceKvp(KVP_KEY)
     SendNUIMessage({ action = 'resetSettings' })
-    lib.notify({ description = 'Dispatch settings reset — rejoin or restart the resource', type = 'success' })
+    pr_lib.notify({ description = 'Dispatch settings reset — rejoin or restart the resource', type = 'success' })
 end, false)
 
 RegisterNUICallback('saveDispatchSettings', function(data, cb)
@@ -524,7 +576,7 @@ RegisterNetEvent('ps-dispatch:client:notify', function(data)
     -- formatted NUI-side.
     local dc = data.displayCoords or data.coords
     if dc and dc.x then
-        local pcoords = GetEntityCoords(cache.ped or PlayerPedId())
+        local pcoords = GetEntityCoords(pr_lib.cache.ped or PlayerPedId())
         local dx, dy = pcoords.x - dc.x, pcoords.y - dc.y
         data.distance = math.floor(math.sqrt(dx * dx + dy * dy))
     end
@@ -586,7 +638,7 @@ RegisterNetEvent('ps-dispatch:client:openMenu', function(data)
     local plateCount = GetPlateHitCount and GetPlateHitCount() or 0
 
     if #data == 0 and plateCount == 0 then
-        lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
+        pr_lib.notify({ description = locale('no_calls'), position = 'top', type = 'error' })
     else
         toggleUI(true)
         -- Plate log first: the NUI decides which tab to open on, and it can
@@ -598,27 +650,35 @@ RegisterNetEvent('ps-dispatch:client:openMenu', function(data)
     end
 end)
 
--- EventHandlers
-RegisterNetEvent("QBCore:Client:OnJobUpdate", setupDispatch)
+-- Framework-neutral lifecycle. pr_bridge keeps player data current for every
+-- supported framework; a small signature check replaces framework events and
+-- also covers character switches and duty changes.
+CreateThread(function()
+    local previousSignature
+    local wasLoaded = false
 
-AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
-    setupDispatch()
-    createZones()
-end)
+    while true do
+        local data = Framework.GetPlayerData() or {}
+        local job = data.job or {}
+        local grade = job.grade
+        local gradeLevel = type(grade) == 'table' and (grade.level or grade.grade) or grade
+        local loaded = next(data) ~= nil and data.citizenid ~= nil
+        local signature = loaded and table.concat({
+            tostring(data.citizenid), tostring(job.name), tostring(job.type),
+            tostring(gradeLevel), tostring(job.onduty == true)
+        }, ':') or 'unloaded'
 
-AddEventHandler('QBCore:Client:OnPlayerUnload', removeZones)
+        if signature ~= previousSignature then
+            previousSignature = signature
+            setupDispatch()
+            TriggerEvent('ps-dispatch:client:bridgePlayerDataChanged', data)
 
-AddEventHandler('onResourceStart', function(resourceName)
-    if resourceName ~= GetCurrentResourceName() then return end
-    setupDispatch()
-    -- Restart parity: zones were only ever created on OnPlayerLoaded, so a
-    -- resource restart silently killed hunting/no-dispatch detection until
-    -- the next relog. (This is also why resmon showed ~0.03ms after joining
-    -- but 0.00 after a restart — the cost IS the ox_lib zone frame loop, and
-    -- after a restart it simply wasn't running anymore. With empty zone
-    -- lists in the config there are no zones and no frame loop at all.)
-    if LocalPlayer.state.isLoggedIn then
-        createZones()
+            if loaded and not wasLoaded then createZones() end
+            if not loaded and wasLoaded then removeZones() end
+            wasLoaded = loaded
+        end
+
+        Wait(500)
     end
 end)
 
@@ -652,20 +712,20 @@ end)
 
 RegisterNUICallback("toggleMute", function(data, cb)
     local muteStatus = data.boolean and locale('muted') or locale('unmuted')
-    lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
+    pr_lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
     alertsMuted = data.boolean
     cb("ok")
 end)
 
 RegisterNUICallback("toggleAlerts", function(data, cb)
     local muteStatus = data.boolean and locale('disabled') or locale('enabled')
-    lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
+    pr_lib.notify({ description = locale('alerts') .. muteStatus, position = 'top', type = 'warning' })
     alertsDisabled = data.boolean
     cb("ok")
 end)
 
 RegisterNUICallback("clearBlips", function(data, cb)
-    lib.notify({ description = locale('blips_cleared'), position = 'top', type = 'success' })
+    pr_lib.notify({ description = locale('blips_cleared'), position = 'top', type = 'success' })
     for _, v in pairs(blips) do
         RemoveBlip(v)
     end
@@ -687,14 +747,14 @@ RegisterNUICallback("setCallNote", function(data, cb)
 end)
 
 RegisterNUICallback("getStats", function(_, cb)
-    local st = lib.callback.await('ps-dispatch:callback:getStats', false)
+    local st = pr_lib.callback.await('ps-dispatch:callback:getStats', false)
     SendNUIMessage({ action = 'stats', data = st })
     cb("ok")
 end)
 
 RegisterNUICallback("refreshAlerts", function(data, cb)
-    lib.notify({ description = locale('alerts_refreshed'), position = 'top', type = 'success' })
-    local data = lib.callback.await('ps-dispatch:callback:getCalls', false)
+    pr_lib.notify({ description = locale('alerts_refreshed'), position = 'top', type = 'success' })
+    local data = pr_lib.callback.await('ps-dispatch:callback:getCalls', false)
     SendNUIMessage({ action = 'setDispatchs', data = data, })
     cb("ok")
 end)
@@ -715,13 +775,13 @@ if Config.TestCommand then
     --                                          without editing the config.
     RegisterCommand('dispatchsound', function(_, args)
         if alertsMuted then
-            lib.notify({ description = 'Alerts are muted (settings > Alert Sounds)', type = 'error' })
+            pr_lib.notify({ description = 'Alerts are muted (settings > Alert Sounds)', type = 'error' })
             return
         end
 
         if args and args[1] and args[2] then
             PlaySound(-1, args[1], args[2], 0, 0, 1)
-            lib.notify({ description = ('Played %s / %s'):format(args[1], args[2]), type = 'inform' })
+            pr_lib.notify({ description = ('Played %s / %s'):format(args[1], args[2]), type = 'inform' })
             return
         end
 
@@ -736,13 +796,13 @@ if Config.TestCommand then
         playAlertSound({ priority = 2 })
         SetTimeout(1400, function() playAlertSound({ priority = 1 }) end)
         SetTimeout(2800, function() playAlertSound({ priority = 0 }) end)
-        lib.notify({ description = 'Routine, then priority, then critical', type = 'inform' })
+        pr_lib.notify({ description = 'Routine, then priority, then critical', type = 'inform' })
     end, false)
 
     RegisterCommand(Config.TestCommand, function()
         CreateThread(function()
             local res = GetCurrentResourceName()
-            local coords = GetEntityCoords(cache.ped or PlayerPedId())
+            local coords = GetEntityCoords(pr_lib.cache.ped or PlayerPedId())
 
             local sequence = {
                 -- 1: vehicle strip showcase
@@ -793,7 +853,7 @@ if Config.TestCommand then
                 end,
             }
 
-            lib.notify({ description = ('Dispatch test: %d alerts, 10s apart'):format(#sequence), type = 'inform' })
+            pr_lib.notify({ description = ('Dispatch test: %d alerts, 10s apart'):format(#sequence), type = 'inform' })
             for i = 1, #sequence do
                 sequence[i]()
                 if i < #sequence then Wait(math.random(2000,10000)) end

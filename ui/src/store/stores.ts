@@ -40,6 +40,12 @@ export const PLATES_ENABLED = writable<boolean>(true);
 // 1440p and tiny above it, so the whole thing scales from one number.
 export const UI_SCALE = writable<number>(1);
 
+// Server-wide configuration. Permission is supplied by the server and every
+// save is checked there again; the UI flag only controls visibility.
+export const ADMIN_OPEN = writable<boolean>(false);
+export const ADMIN_PAYLOAD = writable<any>({ allowed: false, config: null, externalZones: [] });
+export const CREATED_ZONE = writable<any>(null);
+
 // Declared major incidents, newest first. Broadcast whole on every change.
 export const INCIDENTS = writable<any[]>([]);
 // Whether this player's grade allows declaring. Cosmetic only — the server
@@ -83,6 +89,9 @@ interface DISPATCHMENU_DATA {
   doors: string,
   heading: string,
   jobs: any[],
+  codeName?: string,
+  unitsLive?: number,
+  dispatchNote?: string,
 }
 
 export const DISPATCH_MENU = writable<DISPATCHMENU_DATA[]>(null);
