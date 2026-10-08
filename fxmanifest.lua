@@ -3,7 +3,7 @@ fx_version 'cerulean'
 game "gta5"
 
 author "Project Sloth & OK1ez"
-version '3.0.0'
+version '3.0.1'
 
 lua54 'yes'
 
