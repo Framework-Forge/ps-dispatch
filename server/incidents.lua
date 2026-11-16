@@ -8,8 +8,7 @@
 -- The state lives here and is broadcast whole on every change: the list is a
 -- handful of entries, so diffing it would be more code than it saves.
 
-local QBCore = nil
-pcall(function() QBCore = exports['qb-core']:GetCoreObject() end)
+local Framework = PSDispatch.framework
 
 local function cfg()
     return (Config and Config.MajorIncident) or {}
@@ -43,12 +42,7 @@ end
 ---@return boolean
 function MayDeclareIncident(src)
     if cfg().Enabled == false then return false end
-    if not QBCore then return false end
-
-    local player = QBCore.Functions.GetPlayer(src)
-    if not player then return false end
-
-    local job = player.PlayerData and player.PlayerData.job
+    local job = Framework.GetPlayerJob(src)
     if not job then return false end
 
     local required = (cfg().Grades or {})[job.name]
@@ -59,10 +53,9 @@ function MayDeclareIncident(src)
 end
 
 --- How the declaring unit is named on every other board.
----@param player table|nil the QBCore player object
+---@param data table|nil player data supplied by pr_bridge
 ---@return string
-local function describeDeclarer(player)
-    local data = player and player.PlayerData
+local function describeDeclarer(data)
     if not data then return locale('incident_supervisor') end
 
     local parts = {}
@@ -100,7 +93,7 @@ function DropIncident(callId)
     broadcastIncidents()
 end
 
-lib.callback.register('ps-dispatch:callback:mayDeclareIncident', function(source)
+pr_lib.callback.register('ps-dispatch:callback:mayDeclareIncident', function(source)
     return MayDeclareIncident(source)
 end)
 
@@ -128,19 +121,19 @@ RegisterServerEvent('ps-dispatch:server:declareIncident', function(payload)
         return
     end
 
-    local player = QBCore and QBCore.Functions.GetPlayer(src)
+    local playerData = Framework.GetPlayerData(src)
 
     activeIncidents[id] = {
         id = id,
         title = type(payload.title) == 'string' and payload.title:sub(1, 64) or locale('incident_default_title'),
         code = type(payload.code) == 'string' and payload.code:sub(1, 12) or nil,
         street = type(payload.street) == 'string' and payload.street:sub(1, 64) or nil,
-        declaredBy = player and player.PlayerData.citizenid or nil,
+        declaredBy = playerData and playerData.citizenid or nil,
         -- "60 · Sergeant · J. Walker" — the way a unit is actually identified
         -- on the radio: callsign first, then who is behind it. Each part is
         -- dropped if the server doesn't provide it, so a missing rank leaves a
         -- shorter line rather than a stray separator.
-        declaredByName = describeDeclarer(player),
+        declaredByName = describeDeclarer(playerData),
         declaredAt = GetGameTimer(),
         expiresAt = expiresAt,
     }
@@ -157,7 +150,7 @@ RegisterServerEvent('ps-dispatch:server:standDownIncident', function(id)
 end)
 
 -- A freshly connected client has no state; hand it over on request.
-lib.callback.register('ps-dispatch:callback:getIncidents', function()
+pr_lib.callback.register('ps-dispatch:callback:getIncidents', function()
     return incidentList()
 end)
 

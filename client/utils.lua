@@ -1,5 +1,8 @@
+local Framework = PSDispatch.framework
+local Inventory = PSDispatch.inventory
+
 function GetPlayerHeading()
-    local heading = GetEntityHeading(cache.ped)
+    local heading = GetEntityHeading(pr_lib.cache.ped)
 
     if heading >= 315 or heading < 45 then
         return locale('north')
@@ -14,7 +17,8 @@ end
 
 function GetPlayerGender()
     local gender = locale('male')
-    if QBCore.Functions.GetPlayerData().charinfo.gender == 1 then
+    local playerData = Framework.GetPlayerData() or {}
+    if playerData.charinfo and playerData.charinfo.gender == 1 then
         gender = locale('female')
     end
     return gender
@@ -22,13 +26,14 @@ end
 
 function GetIsHandcuffed()
     -- Standard Lua instead of CfxLua's `?.` so the file passes plain luac.
-    local pd = QBCore.Functions.GetPlayerData()
+    local pd = Framework.GetPlayerData()
     return pd and pd.metadata and pd.metadata.ishandcuffed
 end
 
 function IsOnDuty()
     if Config.OnDutyOnly then
-        if QBCore.Functions.GetPlayerData().job.onduty then
+        local playerData = Framework.GetPlayerData() or {}
+        if playerData.job and playerData.job.onduty then
             return true
         else
             return false
@@ -40,7 +45,7 @@ end
 ---@return boolean
 local function HasPhone()
     for _, item in ipairs(Config.PhoneItems) do
-        if QBCore.Functions.HasItem(item) then
+        if Inventory.HasItem(item, 1) then
             return true
         end
     end
@@ -141,14 +146,14 @@ function GetVehicleData(vehicle)
 end
 
 function PhoneAnimation()
-    lib.requestAnimDict("cellphone@in_car@ds", 500)
+    pr_lib.requestAnimDict("cellphone@in_car@ds", 500)
 
-    if not IsEntityPlayingAnim(cache.ped, "cellphone@in_car@ds", "cellphone_call_listen_base", 3) then
-        TaskPlayAnim(cache.ped, "cellphone@in_car@ds", "cellphone_call_listen_base", 3.0, 3.0, -1, 50, 0, false, false, false)
+    if not IsEntityPlayingAnim(pr_lib.cache.ped, "cellphone@in_car@ds", "cellphone_call_listen_base", 3) then
+        TaskPlayAnim(pr_lib.cache.ped, "cellphone@in_car@ds", "cellphone_call_listen_base", 3.0, 3.0, -1, 50, 0, false, false, false)
     end
 
     Wait(2500)
-    StopEntityAnim(cache.ped, "cellphone_call_listen_base", "cellphone@in_car@ds", 3)
+    StopEntityAnim(pr_lib.cache.ped, "cellphone_call_listen_base", "cellphone@in_car@ds", 3)
 end
 
 ---@param message string
@@ -158,7 +163,10 @@ function IsCallAllowed(message)
 
     if msgLength == 0 then return false end
     if GetIsHandcuffed() then return false end
-    if Config.PhoneRequired and not HasPhone() then QBCore.Functions.Notify('You need a communications device for this.', 'error', 5000) return false end
+    if Config.PhoneRequired and not HasPhone() then
+        pr_lib.notify({ description = 'You need a communications device for this.', type = 'error', duration = 5000 })
+        return false
+    end
 
     return true
 end
@@ -211,7 +219,7 @@ local weaponTable = {
 }
 
 function GetWeaponName()
-    local currentWeapon = GetSelectedPedWeapon(cache.ped)
+    local currentWeapon = GetSelectedPedWeapon(pr_lib.cache.ped)
     return weaponTable[currentWeapon] or "Unknown"
 end
 

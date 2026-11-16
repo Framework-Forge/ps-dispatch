@@ -1,5 +1,5 @@
 <script>
-  import { DISPATCH_MENU, DISPATCH_MUTED, DISPATCH_DISABLED, STATS, ALERT_POSITION, MAX_VISIBLE_ALERTS, THUMBS_ENABLED, BLIPS_ENABLED, PRIORITY_ONLY, COMPACT_ALERTS, MAP_IMAGE, FOCUS_CALL, OVERLAY_OPEN, ALERT_TYPES, MUTED_CODES, ALERT_DURATION, REDUCED_MOTION, processedDispatchMenu, PLATE_HITS, MENU_TAB, PLATES_ENABLED, INCIDENTS, MAY_DECLARE, PLAYER, UI_SCALE } from '@store/stores';
+  import { DISPATCH_MENU, DISPATCH_MUTED, DISPATCH_DISABLED, STATS, ALERT_POSITION, MAX_VISIBLE_ALERTS, THUMBS_ENABLED, BLIPS_ENABLED, PRIORITY_ONLY, COMPACT_ALERTS, MAP_IMAGE, FOCUS_CALL, OVERLAY_OPEN, ALERT_TYPES, MUTED_CODES, ALERT_DURATION, REDUCED_MOTION, processedDispatchMenu, PLATE_HITS, MENU_TAB, PLATES_ENABLED, INCIDENTS, MAY_DECLARE, PLAYER, UI_SCALE, ADMIN_OPEN, ADMIN_PAYLOAD } from '@store/stores';
   import { fly, fade, scale, slide } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { DUR, EASE_IN, EASE_OUT } from '@utils/motion';
@@ -13,7 +13,7 @@
   // adjusting, so anything that needs dragging fights you. The ceiling is
   // deliberate too — beyond about 1.3 the panel walks off a 1080p screen, and
   // the way back in is this dialog.
-  const SCALES = [[0.9, 'Small'], [1.0, 'Default'], [1.15, 'Large'], [1.3, 'Huge']];
+  const SCALES = /** @type {[number, string][]} */ ([[0.9, 'Small'], [1.0, 'Default'], [1.15, 'Large'], [1.3, 'Huge']]);
 
   let activeCallId = null;
   let activePlateId = null;
@@ -401,7 +401,7 @@
 
           <div class="pd-form-group">
             <span class="pd-form-label">Alert Position</span>
-            <select class="pd-select" value={$ALERT_POSITION} on:change={(e) => { ALERT_POSITION.set(e.target.value); saveSettings(); }}>
+            <select class="pd-select" value={$ALERT_POSITION} on:change={(e) => { ALERT_POSITION.set(e.currentTarget.value); saveSettings(); }}>
               {#each ALERT_POSITIONS as [value, label]}
                 <option {value}>{label}</option>
               {/each}
@@ -411,7 +411,7 @@
 
           <div class="pd-form-group">
             <span class="pd-form-label">Max Visible Alerts</span>
-            <select class="pd-select" value={$MAX_VISIBLE_ALERTS} on:change={(e) => { MAX_VISIBLE_ALERTS.set(Number(e.target.value)); saveSettings(); }}>
+            <select class="pd-select" value={$MAX_VISIBLE_ALERTS} on:change={(e) => { MAX_VISIBLE_ALERTS.set(Number(e.currentTarget.value)); saveSettings(); }}>
               {#each [2, 3, 4, 5, 6] as n}
                 <option value={n}>{n}</option>
               {/each}
@@ -455,7 +455,7 @@
 
           <div class="pd-form-group">
             <span class="pd-form-label">Alert Duration</span>
-            <select class="pd-select" value={$ALERT_DURATION} on:change={(e) => { ALERT_DURATION.set(Number(e.target.value)); saveSettings(); }}>
+            <select class="pd-select" value={$ALERT_DURATION} on:change={(e) => { ALERT_DURATION.set(Number(e.currentTarget.value)); saveSettings(); }}>
               <option value={0.5}>Short (0.5×)</option>
               <option value={1}>Normal (1×)</option>
               <option value={1.5}>Long (1.5×)</option>
@@ -509,6 +509,13 @@
             </div>
             <div class="pd-toggle" class:pd-toggle--on={!$DISPATCH_DISABLED} on:click={toggleAlerts}></div>
           </div>
+
+          {#if $ADMIN_PAYLOAD?.allowed}
+            <button class="pd-btn pd-btn--primary w-full" on:click={() => { settingsOpen = false; ADMIN_OPEN.set(true); }}>
+              <i class="fas fa-sliders"></i>
+              Administração global
+            </button>
+          {/if}
 
         </div>
       </div>

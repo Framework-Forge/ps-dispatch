@@ -235,10 +235,6 @@ local function pushTabVisibility()
     end
 end
 
-RegisterNetEvent('QBCore:Client:OnJobUpdate', function()
-    CreateThread(function() Wait(500) pushTabVisibility() end)
-end)
-
-RegisterNetEvent('qbx_core:client:onJobUpdate', function()
+AddEventHandler('ps-dispatch:client:bridgePlayerDataChanged', function()
     CreateThread(function() Wait(500) pushTabVisibility() end)
 end)

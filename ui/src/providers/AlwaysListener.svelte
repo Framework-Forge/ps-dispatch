@@ -2,7 +2,7 @@
 	import { ReceiveNUI } from '@utils/ReceiveNUI'
 	import { debugData } from '@utils/debugData'
 	import { SendNUI } from '@utils/SendNUI'
-	import { VISIBILITY, BROWSER_MODE, DISPATCH_MENU, DISPATCH_MENUS, DISPATCH, PLAYER, Locale, RESPOND_KEYBIND, MAX_CALL_LIST, MAX_VISIBLE_ALERTS, ALERT_POSITION, MAP_IMAGE, UNATTENDED_AFTER, PINNED_CODES, STATS, THUMBS_ENABLED, BLIPS_ENABLED, PRIORITY_ONLY, COMPACT_ALERTS, FOCUS_CALL, ALERT_TYPES, MUTED_CODES, ALERT_DURATION, REDUCED_MOTION, PLATE_HITS, MENU_TAB, PLATES_ENABLED, INCIDENTS, MAY_DECLARE, UI_SCALE } from '@store/stores';
+	import { VISIBILITY, BROWSER_MODE, DISPATCH_MENU, DISPATCH_MENUS, DISPATCH, PLAYER, Locale, RESPOND_KEYBIND, MAX_CALL_LIST, MAX_VISIBLE_ALERTS, ALERT_POSITION, MAP_IMAGE, UNATTENDED_AFTER, PINNED_CODES, STATS, THUMBS_ENABLED, BLIPS_ENABLED, PRIORITY_ONLY, COMPACT_ALERTS, FOCUS_CALL, ALERT_TYPES, MUTED_CODES, ALERT_DURATION, REDUCED_MOTION, PLATE_HITS, MENU_TAB, PLATES_ENABLED, INCIDENTS, MAY_DECLARE, UI_SCALE, ADMIN_OPEN, ADMIN_PAYLOAD, CREATED_ZONE } from '@store/stores';
 
 	debugData([
 		{
@@ -150,6 +150,29 @@
 
 	ReceiveNUI('focusCall', (id: any) => {
 		FOCUS_CALL.set(id ?? null)
+	});
+
+	ReceiveNUI('globalConfig', (data: any) => {
+		ADMIN_PAYLOAD.update(current => ({
+			...(current || { allowed: false }),
+			...(data || {}),
+			allowed: data?.allowed ?? current?.allowed ?? false,
+		}));
+	});
+
+	ReceiveNUI('openAdminConfig', (data: any) => {
+		if (data) ADMIN_PAYLOAD.set(data);
+		ADMIN_OPEN.set(true);
+	});
+
+	ReceiveNUI('dispatchZoneCreated', (data: any) => {
+		CREATED_ZONE.set({ value: data || null, nonce: Date.now() });
+	});
+
+	ReceiveNUI('zoneEditorState', (active: boolean) => {
+		// AdminSettings lives outside VisibilityProvider, so it needs its own
+		// visibility switch while the PR Bridge world editor has control.
+		ADMIN_OPEN.set(active !== true);
 	});
 
 	ReceiveNUI('setDispatchs', (data: any) => {

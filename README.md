@@ -1,6 +1,12 @@
 # ps-dispatch
 
-Dispatch and alert system for FiveM. Built with Svelte and Lua. Works on QBCore and QBX.
+Dispatch and alert system for FiveM. Built with Svelte and Lua. Framework integration is provided by `pr_bridge`.
+
+## Zone management (Forge)
+
+In the administrative panel, **Areas ignoradas** supports teleporting to a published area's center, editing its label/coordinates/dimensions, and individual visual debugging. Sphere and polygon areas can also be redrawn with the existing PR Bridge world editor. Confirming an edit updates only the panel draft; use **Salvar e publicar** to synchronize it. Cancelling keeps the previous geometry. Linked Safe Zones are read-only copies: edit their source in the Forge Smallresources manager.
+
+Zone visualization uses the Forge Smallresources client debug provider. Global show includes Dispatch areas; global off/hide-all clears even individual Dispatch selections. Display is local to the authorized administrator and is disabled on logout or when Smallresources stops. If Smallresources is unavailable, zone detection continues without forced debug drawing. `Config.Debug` retains its non-visual behavior and does not make zone volumes visible to all players.
 
 ## What is this
 
@@ -12,10 +18,8 @@ Alerts are more than notifications here. A call carries the vehicle's plate draw
 
 | Resource | Why |
 |----------|-----|
-| `qb-core` or `qbx_core` | player data, jobs, grades |
-| `ox_lib` | callbacks, notifications, locales, keybinds |
-| `lsn-radar` [DOWNLOAD](https://github.com/LeSiiN/lsn-radar) | Police Radar, Perfect Fit for both ps-mdt and ps-dispatch |
-| `PolyZone` | alert zones |
+| `pr_bridge` | framework data, inventory, callbacks, notifications, locales, keybinds and zones |
+| `lsn-radar` [DOWNLOAD](https://github.com/LeSiiN/lsn-radar) | Optional police radar integration |
 
 ## Installation
 
@@ -35,13 +39,22 @@ The build writes to `html/` and **empties that folder first**. Anything you want
 ensure ps-dispatch
 ```
 
-### 3. Set your jobs
+### 3. Configure in game
 
-`Config.Jobs` decides who receives alerts at all. Everything else is optional.
+Use `/dispatchconfig` as an administrator. The panel stores the server-wide
+configuration through the database adapter selected by `pr_bridge`.
 
 ## Configuration
 
-Everything lives in `shared/config.lua`.
+`shared/config.lua` now contains only the administrator bootstrap permission,
+command and optional Safe Zone integration defaults. The complete fallback
+configuration is kept in `shared/defaults.lua`; edit day-to-day behaviour from
+the in-game panel.
+
+The **Áreas ignoradas** tab creates circles and polygons with the PR Bridge 3D
+editor. Enabling **Usar Safe Zones do Forge Small Resources** also mirrors active
+Safe Zones from `forge-smallresources` as no-dispatch areas. That resource is
+optional: stopping it does not stop ps-dispatch.
 
 ### Jobs and who sees what
 
@@ -431,11 +444,11 @@ Information about each parameter is in the `alerts.lua` file.
 
 ## FAQ
 * There are no calls showing on dispatch or mdt list.
-  - Make sure you have a job type specified in your qbcore/shared/jobs.lua like:
+  - Make sure the job returned by the framework adapter configured in `pr_bridge` has the expected type, such as `leo`:
   
     ![image](https://github.com/Project-Sloth/ps-dispatch/assets/9503151/7834e878-5020-4fcc-8864-03d44120c160)
 
-  - Make sure that you're using the correct job type as leo and make sure your [qb-core](https://github.com/qbcore-framework/qb-core) is fully updated to the latest version.
+  - Confirm that `pr_bridge` starts before `ps-dispatch` and that its framework and inventory adapters are available.
   - On shared/config.lua make set Config.Debug = true to test calls as police officer.(ONLY to be used as testing, make sure to disable on live production)
 
 * How to change colors of the calls? 
