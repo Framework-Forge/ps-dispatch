@@ -1,3 +1,5 @@
+VersionCheck = true
+
 -- This file intentionally contains only bootstrap settings.
 -- Dispatch behaviour is edited in-game and persisted through pr_bridge's
 -- database adapter. Full fallback values live in shared/defaults.lua.
